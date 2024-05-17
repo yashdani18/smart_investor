@@ -1,3 +1,6 @@
+URL_ROOT = 'https://www.screener.in/company'
+URL_CONSOLIDATED = 'consolidated'
+
 QUARTERS = 'quarters'
 Q_SALES = 'q_sales'
 Q_EXPENSES = 'q_expenses'

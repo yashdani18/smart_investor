@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from etl.extract import ExtractedFields
 
 from constants import QUARTERS, Q_SALES, Q_EXPENSES, Q_OPM, Q_OPM_PERCENT, Q_OTHER_INCOME, Q_INTEREST, Q_DEPRECIATION, \
@@ -31,13 +31,14 @@ class AnnualData:
 
 @dataclass
 class TransformedFields:
+    ticker: str = field(init=False)
     company_name: str = field(init=False)
-    price: int = field(init=False)
+    price: float = field(init=False)
     change: float = field(init=False)
     mcap: int = field(init=False, default=0)
-    current_price: int = field(init=False, default=0)
-    high: int = field(init=False, default=0)
-    low: int = field(init=False, default=0)
+    current_price: float = field(init=False, default=0)
+    high: float = field(init=False, default=0)
+    low: float = field(init=False, default=0)
     stock_pe: float = field(init=False, default=0)
     book_value: int = field(init=False, default=0)
     dividend_yield: float = field(init=False, default=0)
@@ -47,23 +48,44 @@ class TransformedFields:
     quarterlyData: QuarterlyData = field(init=False)
     annualData: AnnualData = field(init=False)
 
+    def dict(self):
+        return {k: v for k, v in asdict(self).items()}
+
 
 def transform(ef: ExtractedFields) -> TransformedFields:
+    print(ef)
     tf = TransformedFields()
-    tf.company_name = ef.company_name
-    tf.price = int(ef.price[1:].strip())
-    tf.change = float(ef.change[:-1])
-    tf.mcap = int(ef.mcap[1:-3].replace('\n', '').strip().replace(',', ''))
-    tf.current_price = tf.price
-    high_low = ef.high_low[1:].split(' / ')
-    tf.high = int(high_low[0])
-    tf.low = int(high_low[1])
-    tf.stock_pe = float(ef.stock_pe)
-    tf.book_value = int(ef.book_value[1:].replace('\n', '').strip())
-    tf.dividend_yield = float(ef.dividend_yield[:-1].replace('\n', '').strip())
-    tf.roce = float(ef.roce[:-1].replace('\n', '').strip())
-    tf.roe = float(ef.roe[:-1].replace('\n', '').strip())
-    tf.fv = float(ef.fv[1:].replace('\n', '').strip())
+    try:
+        tf.ticker = ef.ticker
+        tf.company_name = ef.company_name
+        tf.price = float(ef.price[1:].replace(',', '').strip())
+        tf.change = float(ef.change[:-1])
+        tf.mcap = int(ef.mcap[1:-3].replace('\n', '').strip().replace(',', ''))
+        tf.current_price = tf.price
+        high_low = ef.high_low[1:].split(' / ')
+        tf.high = float(high_low[0].replace(',', ''))
+        tf.low = float(high_low[1].replace(',', ''))
+        if ef.stock_pe == '':
+            tf.stock_pe = 0
+        else:
+            tf.stock_pe = float(ef.stock_pe)
+        if ef.book_value[1:] == '':
+            tf.book_value = 0
+        else:
+            tf.book_value = int(ef.book_value[1:].replace('\n', '').strip())
+        tf.dividend_yield = float(ef.dividend_yield[:-1].replace('\n', '').strip())
+
+        temp_roce = ef.roce[:-1].replace('\n', '').strip()
+        if temp_roce == '':
+            tf.roce = 0
+        else:
+            tf.roce = float(temp_roce)
+        tf.roe = float(ef.roe[:-1].replace('\n', '').strip())
+        tf.fv = float(ef.fv[1:].replace('\n', '').strip())
+    except Exception as e:
+        print('Exception while transforming fundamental ratios for', tf.ticker)
+        print(str(e))
+        exit(1)
 
     quarterly_data = QuarterlyData()
     q_sales = ef.results[Q_SALES]
@@ -78,13 +100,19 @@ def transform(ef: ExtractedFields) -> TransformedFields:
     temp_q_sales = quarterly_data.q_sales
     temp_q_expenses = quarterly_data.q_expenses
     temp_q_net_profit = quarterly_data.q_net_profit
-    quarterly_data.q_sales_percent = \
-        [round(((temp_q_sales[index + 1] - val) / val * 100), 2) for index, val in enumerate(temp_q_sales[:-1])]
-    quarterly_data.q_expenses_percent = \
-        [round(((temp_q_expenses[index + 1] - val) / val * 100), 2) for index, val in enumerate(temp_q_expenses[:-1])]
-    quarterly_data.q_net_profit_percent = \
-        [round(((temp_q_net_profit[index + 1] - val) / val * 100), 2)
-         for index, val in enumerate(temp_q_net_profit[:-1])]
+
+    try:
+        quarterly_data.q_sales_percent = \
+            [round(((temp_q_sales[index + 1] - val) / val * 100), 2) for index, val in enumerate(temp_q_sales[:-1])]
+        quarterly_data.q_expenses_percent = \
+            [round(((temp_q_expenses[index + 1] - val) / val * 100), 2) for index, val in
+             enumerate(temp_q_expenses[:-1])]
+        quarterly_data.q_net_profit_percent = \
+            [round(((temp_q_net_profit[index + 1] - val) / val * 100), 2)
+             for index, val in enumerate(temp_q_net_profit[:-1])]
+    except ZeroDivisionError as e:
+        print('ZeroDivisionError while transforming data for', tf.ticker)
+        exit(1)
 
     annual_data = AnnualData()
     a_sales = ef.results[A_SALES]
@@ -99,13 +127,18 @@ def transform(ef: ExtractedFields) -> TransformedFields:
     temp_a_sales = annual_data.a_sales
     temp_a_expenses = annual_data.a_expenses
     temp_a_net_profit = annual_data.a_net_profit
-    annual_data.a_sales_percent = \
-        [round(((temp_a_sales[index + 1] - val) / val * 100), 2) for index, val in enumerate(temp_a_sales[:-1])]
-    annual_data.a_expenses_percent = \
-        [round(((temp_a_expenses[index + 1] - val) / val * 100), 2) for index, val in enumerate(temp_a_expenses[:-1])]
-    annual_data.a_net_profit_percent = \
-        [round(((temp_a_net_profit[index + 1] - val) / val * 100), 2)
-         for index, val in enumerate(temp_a_net_profit[:-1])]
+    try:
+        annual_data.a_sales_percent = \
+            [round(((temp_a_sales[index + 1] - val) / val * 100), 2) for index, val in enumerate(temp_a_sales[:-1])]
+        annual_data.a_expenses_percent = \
+            [round(((temp_a_expenses[index + 1] - val) / val * 100), 2) for index, val in
+             enumerate(temp_a_expenses[:-1])]
+        annual_data.a_net_profit_percent = \
+            [round(((temp_a_net_profit[index + 1] - val) / val * 100), 2)
+             for index, val in enumerate(temp_a_net_profit[:-1])]
+    except ZeroDivisionError as e:
+        print('ZeroDivisionError while transforming data for', tf.ticker)
+        exit(1)
 
     tf.quarterlyData = quarterly_data
     tf.annualData = annual_data
@@ -135,4 +168,3 @@ def transform(ef: ExtractedFields) -> TransformedFields:
 # UI? fetch expenses for last few days (set duration)
 
 # If time remains, start learning about Next.js
-
